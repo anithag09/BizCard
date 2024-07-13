@@ -8,6 +8,7 @@ BizCardX is a Streamlit application designed to extract and manage business card
 - **MySQL**: Database management
 - **Streamlit**: Interactive web applications
 - **OCR**: Optical Character Recognition for text extraction
+- **PIL**: To read the image
 
 ## About the Project
 This project allows users to upload business card images, extract text data, and store it in a MySQL database. Users can also view, edit, and delete the stored data through the application.
