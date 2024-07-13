@@ -17,7 +17,7 @@ This project allows users to upload business card images, extract text data, and
 ### Prerequisites
 - Python 3.7 or higher
 - MySQL server
-- Required Python packages: easyocr, streamlit, pandas, pymysql, numpy
+- Required Python packages: easyocr, streamlit, pandas, pymysql, numpy, re, PIL
 
 ### Step-by-Step Guide
 
@@ -59,7 +59,8 @@ This project allows users to upload business card images, extract text data, and
 2. Data Extraction and Storage
 
 - The uploaded image is processed using EasyOCR to extract text.
-- The extracted data is then stored in the MySQL database.
+- The image is converted into binary format
+- The extracted data and image in binary format is then stored in the MySQL database.
 
 **Alter Data**
 
@@ -86,6 +87,9 @@ This project allows users to upload business card images, extract text data, and
 
 **SQL Connection**
 - The connect_database function establishes a connection to the MySQL database.
+
+**Image To Binary**
+- The image_to_binary function reads the image and convert into binary formart.
 
 **Extract Data**
 - The extract_data function processes the OCR results and maps them to the appropriate fields.
