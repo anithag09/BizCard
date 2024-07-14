@@ -26,27 +26,38 @@ def connect_database():
 myconnection = connect_database()
 cursor = myconnection.cursor()
 
+# Convert image data to binary format
+def image_to_binary(file):
+    file.seek(0)
+    binary_data = file.read()
+    return binary_data
+
 # Extract data
-def extract_data(result):
+def extract_data(result, input_image):
     data = {
-        'Company_name': '',
+        'Company_name': [],
         'Cardholder_name': '',
         'Designation': '',
         'Phone_number': '',
         'Email': '',
-        'Website': '',
-        'Area': '',
-        'City': '',
+        'Website': [],
+        'Area': [],
+        'City': [],
         'State': '',
-        'Pincode': ''
+        'Pincode': '',
+        'Image': image_to_binary(input_image)
     }
     
+    data['Designation'] = result[1]
+    data['State'] = 'TamilNadu'
+
     for text in result:
         text_lower = text.lower()
         if '@' in text_lower:
             data['Email'] = text
-        elif text_lower.startswith('www') or text_lower.startswith('http') and text_lower.endswith('.com'):
-            data['Website'] = text
+        elif text_lower.startswith('www') or text_lower.startswith('http') or text_lower.endswith('.com'):
+            data['Website'].append(text)
+            data['Website'] = [''.join(data['Website'])]
         elif '-' in text:
             data['Phone_number'] = text
         elif 'st' in text_lower and ',' in text:
@@ -54,23 +65,19 @@ def extract_data(result):
             if len(parts) >= 3:
                 data['Area'] = parts[0].strip()
                 data['City'] = parts[1].strip()
-                data['State'] = parts[2].replace(';',' ').strip()
             elif len(parts) >=2:
                 data['Area'] = parts[0].strip()
                 data['City'] = parts[1].replace(';',' ').strip()
-                if text_lower in ['tamilnadu', 'tamil nadu']:
-                    data['State'] = text
         elif re.search(r'\b\d{5,6}\b', text_lower):
             data['Pincode'] = re.search(r'\b\d{5,6}\b', text_lower).group()
-        elif text_lower in ['data manager', 'ceo & founder', 'general manager', 'marketing executive', 'technical manager']:
-            data['Designation'] = text
         else:
             if not data['Cardholder_name']:
                 data['Cardholder_name'] = text
             else:
-                data['Company_name'] = text
-
+                data['Company_name'].append(text)
+                data['Company_name'] = [''.join(data['Company_name']).strip()]
     return data
+
 
 # Create table and insert data into the database
 def card_table(data):
@@ -86,13 +93,14 @@ def card_table(data):
             Area VARCHAR(255),
             City VARCHAR(255),
             State VARCHAR(255),
-            Pincode INT
+            Pincode INT,
+            Image LONGBLOB       
         )
     ''')
     
     query = '''
-    INSERT INTO BizCard (Company_name, Cardholder_name, Designation, Phone_number, Email, Website, Area, City, State, Pincode)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO BizCard (Company_name, Cardholder_name, Designation, Phone_number, Email, Website, Area, City, State, Pincode, Image)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE
         Company_name = VALUES(Company_name),
         Cardholder_name = VALUES(Cardholder_name),
@@ -102,15 +110,32 @@ def card_table(data):
         Area = VALUES(Area),
         City = VALUES(City),
         State = VALUES(State),
-        Pincode = VALUES(Pincode)
+        Pincode = VALUES(Pincode),
+        Image = VALUES(Image)
     '''
     
     cursor.execute(query, (
         data['Company_name'], data['Cardholder_name'], data['Designation'], 
         data['Phone_number'], data['Email'], data['Website'], 
-        data['Area'], data['City'], data['State'], data['Pincode']
+        data['Area'], data['City'], data['State'], data['Pincode'], data['Image']
     ))
     myconnection.commit()
+
+# Check if the card details already exist in the database
+def check_card(email):
+    try:
+        # Check if the table exists
+        cursor.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'Bizcard' AND table_name = 'BizCard'")
+        if cursor.fetchone()[0] == 1:  
+            cursor.execute('SELECT * FROM BizCard WHERE Email = %s', (email,))
+            result = cursor.fetchone()
+            return result
+        else:
+            return []
+    except Exception as e:
+        st.error(f"An error occurred while fetching existing channel IDs: {e}")
+        return []    
+
 
 # Streamlit code
 st.set_page_config(page_title="Bizcard", layout="wide")
@@ -134,17 +159,15 @@ if selected == "Upload & Extract":
     with col2:
         button2 = st.button(':blue[View Card]')    
     with col3:
-        button3 = st.button(':blue[View Data]')
+        button3 = st.button(':blue[View Extracted Data]')
 
     if input_card is None and button1:
         st.warning("Please upload a business card to continue")
     elif input_card is not None:
         extracted_text = read_image(input_card)
-        extracted_data = extract_data(extracted_text)
+        extracted_data = extract_data(extracted_text, input_card)
         if button1:
-            # Check if the card details already exist in the database
-            cursor.execute('SELECT * FROM BizCard WHERE Email = %s', (extracted_data['Email'],))
-            result = cursor.fetchone()
+            result = check_card(extracted_data['Email'])
             if result:
                 st.warning("The card details already exist in the database.")
             else:
@@ -161,7 +184,11 @@ if selected == "Alter Data":
        
     if option == 'View Details':
         cursor.execute('SELECT * FROM BizCard')
-        st.dataframe(pd.DataFrame(cursor.fetchall(), columns=['Company_name', 'Cardholder_name', 'Designation', 'Phone_number', 'Email', 'Website', 'Area', 'City', 'State', 'Pincode']))       
+        data = cursor.fetchall()
+        df = pd.DataFrame(data, columns=['id','Company_name', 'Cardholder_name', 'Designation', 'Phone_number', 'Email', 'Website', 'Area', 'City', 'State', 'Pincode', 'Image'])
+        # Convert Pincode column to string to avoid comma formatting
+        df['Pincode'] = df['Pincode'].astype(str)  
+        st.dataframe(df)  
     elif option == 'Edit Details':
         email = st.text_input('Enter the email of the card to edit')
         field = st.selectbox('Select the field to edit', ('Company_name', 'Cardholder_name', 'Designation', 'Phone_number', 'Website', 'Area', 'City', 'State', 'Pincode'))
@@ -176,3 +203,5 @@ if selected == "Alter Data":
             cursor.execute('DELETE FROM BizCard WHERE Email = %s', (email,))
             myconnection.commit()
             st.success('Bizcard is deleted successfully')
+
+myconnection.close()
