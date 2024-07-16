@@ -43,41 +43,58 @@ def extract_data(result, input_image):
         'Website': [],
         'Area': [],
         'City': [],
-        'State': '',
+        'State': [],
         'Pincode': '',
         'Image': image_to_binary(input_image)
     }
-    
     data['Designation'] = result[1]
-    data['State'] = 'TamilNadu'
-
+    if data['Designation'] in result:
+        result.remove(data['Designation'])
+    
     for text in result:
         text_lower = text.lower()
         if '@' in text_lower:
             data['Email'] = text
         elif text_lower.startswith('www') or text_lower.startswith('http') or text_lower.endswith('.com'):
             data['Website'].append(text)
-            data['Website'] = [''.join(data['Website'])]
         elif '-' in text:
             data['Phone_number'] = text
         elif 'st' in text_lower and ',' in text:
-            parts = text.split(',')
+            parts = [part.strip() for part in text.split(',') if part.strip()]
             if len(parts) >= 3:
-                data['Area'] = parts[0].strip()
-                data['City'] = parts[1].strip()
-            elif len(parts) >=2:
-                data['Area'] = parts[0].strip()
-                data['City'] = parts[1].replace(';',' ').strip()
-        elif re.search(r'\b\d{5,6}\b', text_lower):
-            data['Pincode'] = re.search(r'\b\d{5,6}\b', text_lower).group()
+                data['Area'].append(parts[0].strip())
+                data['City'].append(parts[1].strip())
+                data['State'] = parts[2].replace(';', ' ').strip()
+            elif len(parts) >= 2:
+                data['Area'].append(parts[0].strip())
+                data['City'].append(parts[1].replace(';',' ').strip())        
+        elif re.findall('^[0-9].+, [a-zA-Z]+', text):
+            data['Area'].append(text.split(',')[0])
+        elif re.findall('[0-9] [a-zA-Z]+', text):
+            data['Area'].append(text)
+            data['Area'].append(result[-1].replace(',',' ').strip())
+        elif re.findall('^[E].*', text):
+            data['City'].append(text.replace(',',' ').strip())
+        elif re.findall('[a-zA-Z]{9} +[0-9]', text):
+            data['State'].append(text[:9])
+            data['Pincode'] = text[10:]
+        elif re.search(r'\b\d{6,7}\b', text_lower):
+            data['Pincode'] = re.search(r'\b\d{6,7}\b', text_lower).group()    
         else:
             if not data['Cardholder_name']:
                 data['Cardholder_name'] = text
             else:
                 data['Company_name'].append(text)
-                data['Company_name'] = [''.join(data['Company_name']).strip()]
-    return data
+    
+    # Join list items to make them a single string
+    data['Company_name'] = ' '.join(data['Company_name']).strip()
+    data['Website'] = ' '.join(data['Website']).strip()
+    data['Area'] = ' '.join(data['Area']).strip()
+    data['City'] = ' '.join(data['City']).strip()
+    data['State'] = ' '.join(data['State']).strip() 
+ 
 
+    return data
 
 # Create table and insert data into the database
 def card_table(data):
@@ -126,7 +143,7 @@ def check_card(email):
     try:
         # Check if the table exists
         cursor.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'Bizcard' AND table_name = 'BizCard'")
-        if cursor.fetchone()[0] == 1:  
+        if cursor.fetchone()[0] == 1:
             cursor.execute('SELECT * FROM BizCard WHERE Email = %s', (email,))
             result = cursor.fetchone()
             return result
@@ -134,8 +151,7 @@ def check_card(email):
             return []
     except Exception as e:
         st.error(f"An error occurred while fetching existing channel IDs: {e}")
-        return []    
-
+        return []
 
 # Streamlit code
 st.set_page_config(page_title="Bizcard", layout="wide")
@@ -183,12 +199,17 @@ if selected == "Alter Data":
     option = st.radio("Select an option:", ['View Details', 'Edit Details', 'Delete Details'])
        
     if option == 'View Details':
-        cursor.execute('SELECT * FROM BizCard')
-        data = cursor.fetchall()
-        df = pd.DataFrame(data, columns=['id','Company_name', 'Cardholder_name', 'Designation', 'Phone_number', 'Email', 'Website', 'Area', 'City', 'State', 'Pincode', 'Image'])
-        # Convert Pincode column to string to avoid comma formatting
-        df['Pincode'] = df['Pincode'].astype(str)  
-        st.dataframe(df)  
+        cursor.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'Bizcard' AND table_name = 'BizCard'")
+        if cursor.fetchone()[0] == 1:
+            cursor.execute('SELECT * FROM BizCard')
+            data = cursor.fetchall()
+            df = pd.DataFrame(data, columns=['id','Company_name', 'Cardholder_name', 'Designation', 'Phone_number', 'Email', 'Website', 'Area', 'City', 'State', 'Pincode', 'Image'])
+            # Convert Pincode column to string to avoid comma formatting
+            df['Pincode'] = df['Pincode'].astype(str)  
+            st.dataframe(df)  
+        else:
+            st.warning('No details available')        
+
     elif option == 'Edit Details':
         email = st.text_input('Enter the email of the card to edit')
         field = st.selectbox('Select the field to edit', ('Company_name', 'Cardholder_name', 'Designation', 'Phone_number', 'Website', 'Area', 'City', 'State', 'Pincode'))
